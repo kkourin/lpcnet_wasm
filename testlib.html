@@ -1,0 +1,95 @@
+<html>
+<head>
+<script src="lpcnet_wasm.js"></script>
+<script>
+let lpcnet = Object();
+
+let sounds = {oak:Object()};
+function makeHeapUintArray(length) {
+    return lpcnet.create_buffer(length * Uint8Array.BYTES_PER_ELEMENT);
+}
+
+function makeHeapInt16Array(length) {
+    return lpcnet.create_buffer(length * Int16Array.BYTES_PER_ELEMENT);
+}
+
+function copyArrayToHeap(uint_array) {
+    arr_ptr = makeHeapUintArray(uint_array.length);
+    Module.HEAPU8.set(uint_array, arr_ptr);
+    return arr_ptr;
+}
+
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function get_oak() {
+    var oReq = new XMLHttpRequest();
+    function processBlob(oEvent) {
+        let buf = oReq.response;
+        sounds.oak.blob = new Uint8Array(buf);
+        sounds.oak.in_ptr = copyArrayToHeap(sounds.oak.blob);
+        sounds.oak.in_length = sounds.oak.blob.length;
+        sounds.oak.out_length = lpcnet.min_out_samples(sounds.oak.blob.length);
+        sounds.oak.out_ptr = makeHeapInt16Array(sounds.oak.out_length);
+    }
+
+    oReq.open("GET", "./compressed_test.bin", true);
+    oReq.responseType = "arraybuffer";
+
+    oReq.onload = processBlob;
+    oReq.send(null);
+}
+
+function decode_and_play(sound) {
+
+    if (lpcnet.try_create_decoder()) {
+        return;
+    }
+    let bytes_consumed = lpcnet.decode(sound.in_ptr, sound.in_length, sound.out_ptr, sound.out_length);
+    let samples_written = lpcnet.min_out_samples(bytes_consumed);
+    let out_array = new Int16Array(Module.HEAP16.buffer, sound.out_ptr, samples_written);
+
+    var myArrayBuffer = audioCtx.createBuffer(1, out_array.length, 16000);
+    var channel = myArrayBuffer.getChannelData(0);
+    // TODO: add float output from decode
+    for (var i = 0; i < out_array.length; i++) { channel[i] = out_array[i] / 32768; }
+    var source = audioCtx.createBufferSource();
+    source.buffer = myArrayBuffer;
+    source.connect(audioCtx.destination);
+    source.start()
+    lpcnet.try_destroy_decoder();
+
+}
+
+function init() {
+  get_oak();
+  document.querySelector('.mybutton')
+    .addEventListener('click', function() {
+        if (sounds["oak"]) {
+            decode_and_play(sounds["oak"]);
+        }
+    });
+
+}
+
+Module.onRuntimeInitialized = async _ => {
+    lpcnet.decode = Module.cwrap('decode', 'number', ['number', 'number', 'number', 'number']);
+    lpcnet.create_buffer = Module.cwrap('create_buffer', 'number', ['number']);
+    lpcnet.min_out_samples = Module.cwrap('min_out_samples', 'number', ['number']);
+    lpcnet.try_create_decoder = Module.cwrap('try_create_decoder', 'number', []);
+    lpcnet.try_destroy_decoder = Module.cwrap('try_destroy_decoder', 'number', []);
+    init();
+};
+
+</script>
+
+</head>
+<body>
+<span>Pressing this button decodes the file compressed_test.bin and plays it in the browser. The decoding may take some time.
+The sound file reads "Oak is strong and also gives shade. Cats and dogs each hate the other."</span>
+<br>
+<button class="mybutton">oak sound</button>
+</body>
+
+
+</html>
+

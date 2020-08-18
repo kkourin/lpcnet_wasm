@@ -1,0 +1,3 @@
+[submodule "LPCNet"]
+	path = LPCNet
+	url = https://github.com/mozilla/LPCNet.git
